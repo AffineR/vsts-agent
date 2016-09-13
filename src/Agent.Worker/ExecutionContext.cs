@@ -305,17 +305,17 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
             if (!string.IsNullOrEmpty(proxyConfiguration.ProxyUrl))
             {
                 Variables.Set(Constants.Variables.Agent.ProxyUrl, proxyConfiguration.ProxyUrl);
+                Environment.SetEnvironmentVariable("VSTS_HTTP_PROXY", string.Empty);
 
                 if (!string.IsNullOrEmpty(proxyConfiguration.ProxyUsername))
                 {
                     Variables.Set(Constants.Variables.Agent.ProxyUsername, proxyConfiguration.ProxyUsername);
+                    Environment.SetEnvironmentVariable("VSTS_HTTP_PROXY_USERNAME", string.Empty);
                 }
 
                 if (!string.IsNullOrEmpty(proxyConfiguration.ProxyPassword))
                 {
                     Variables.Set(Constants.Variables.Agent.ProxyPassword, proxyConfiguration.ProxyPassword, true);
-                    
-                    // take the proxy credential out of environment variable
                     Environment.SetEnvironmentVariable("VSTS_HTTP_PROXY_PASSWORD", string.Empty);
                 }
             }

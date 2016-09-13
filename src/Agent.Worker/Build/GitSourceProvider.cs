@@ -35,7 +35,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
         private const string _remotePullRefsPrefix = "refs/remotes/pull/";
 
         private readonly Dictionary<string, Uri> _credentialUrlCache = new Dictionary<string, Uri>();
-        private readonly Dictionary<string, string> _authHeaderCache = new Dictionary<string, string>();
+        private readonly Dictionary<string, string> _configModifyCache = new Dictionary<string, string>();
 
         private IGitCommandManager _gitCommandManager;
         private bool _selfManageGitCreds = false;
@@ -283,17 +283,24 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
             if (await _gitCommandManager.GitConfigExist(executionContext, targetPath, $"http.{repositoryUrl.AbsoluteUri}.extraheader"))
             {
                 executionContext.Debug("Remove any extraheader setting from git config.");
-                await RemoveExtraHeader(executionContext, targetPath, $"http.{repositoryUrl.AbsoluteUri}.extraheader", string.Empty);
+                await RemoveGitConfig(executionContext, targetPath, $"http.{repositoryUrl.AbsoluteUri}.extraheader", string.Empty);
             }
 
-            string additionalFetchArgs = string.Empty;
+            // always remove any possible left proxy setting from git config.
+            if (await _gitCommandManager.GitConfigExist(executionContext, targetPath, $"http.proxy"))
+            {
+                executionContext.Debug("Remove any proxy setting from git config.");
+                await RemoveGitConfig(executionContext, targetPath, $"http.proxy", string.Empty);
+            }
+
+            List<string> additionalFetchArgs = new List<string>();
             if (!_selfManageGitCreds)
             {
                 if (RepositoryType == WellKnownRepositoryTypes.TfsGit &&
                     (onPremTfsGit.Value || _gitCommandManager.EnsureGitVersion(minGitVersionSupportAuthHeader, throwOnNotMatch: false)))
                 {
                     //  When repository is TfsGit on-prem git or vsts-git with git version support adding auth header.
-                    additionalFetchArgs = $"-c http.extraheader=\"AUTHORIZATION: bearer {password}\"";
+                    additionalFetchArgs.Add($"-c http.extraheader=\"AUTHORIZATION: bearer {password}\"");
                 }
                 else
                 {
@@ -301,7 +308,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
                     // inject credential into fetch url
                     executionContext.Debug("Inject credential into git remote url.");
                     Uri urlWithCred = null;
-                    urlWithCred = GetCredentialEmbeddedRepoUrl(repositoryUrl, username, password);
+                    urlWithCred = GetCredentialEmbeddedUrl(repositoryUrl, username, password);
 
                     // inject credential into fetch url
                     executionContext.Debug("Inject credential into git remote fetch url.");
@@ -319,13 +326,26 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
                         throw new InvalidOperationException($"Unable to use git.exe inject credential to git remote push url, 'git remote set-url --push' failed with exit code: {exitCode_seturl}");
                     }
                 }
+
+                // Prepare proxy config for fetch.
+                string proxyUrl = executionContext.Variables.Get(Constants.Variables.Agent.ProxyUrl);
+                if (!string.IsNullOrEmpty(proxyUrl))
+                {
+                    executionContext.Debug($"Config proxy server '{proxyUrl}' for git fetch.");
+
+                    string proxyUsername = executionContext.Variables.Get(Constants.Variables.Agent.ProxyUsername);
+                    string proxyPassword = executionContext.Variables.Get(Constants.Variables.Agent.ProxyPassword);
+
+                    Uri proxyUrlWithCred = GetCredentialEmbeddedUrl(new Uri(proxyUrl), proxyUsername, proxyPassword);
+                    additionalFetchArgs.Add($"-c http.proxy=\"{proxyUrlWithCred.AbsoluteUri}\"");
+                }
             }
 
             // If this is a build for a pull request, then include
             // the pull request reference as an additional ref.
             string fetchSpec = IsPullRequest(sourceBranch) ? StringUtil.Format("+{0}:{1}", sourceBranch, GetRemoteRefName(sourceBranch)) : null;
 
-            int exitCode_fetch = await _gitCommandManager.GitFetch(executionContext, targetPath, "origin", new List<string>() { fetchSpec }, additionalFetchArgs, cancellationToken);
+            int exitCode_fetch = await _gitCommandManager.GitFetch(executionContext, targetPath, "origin", new List<string>() { fetchSpec }, string.Join(" ", additionalFetchArgs), cancellationToken);
             if (exitCode_fetch != 0)
             {
                 throw new InvalidOperationException($"Git fetch failed with exit code: {exitCode_fetch}");
@@ -366,16 +386,31 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
                     throw new InvalidOperationException($"Git submodule init failed with exit code: {exitCode_submoduleInit}");
                 }
 
-                string additionalSubmoduleUpdateArgs = string.Empty;
-                if (!_selfManageGitCreds &&
-                    RepositoryType == WellKnownRepositoryTypes.TfsGit &&
-                    (onPremTfsGit.Value || _gitCommandManager.EnsureGitVersion(minGitVersionSupportAuthHeader, throwOnNotMatch: false)))
+                List<string> additionalSubmoduleUpdateArgs = new List<string>();
+                if (!_selfManageGitCreds)
                 {
-                    string tfsAccountUrl = repositoryUrl.AbsoluteUri.Replace(repositoryUrl.PathAndQuery, string.Empty);
-                    additionalSubmoduleUpdateArgs = $"-c http.{tfsAccountUrl}.extraheader=\"AUTHORIZATION: bearer {password}\"";
+                    if (RepositoryType == WellKnownRepositoryTypes.TfsGit &&
+                        (onPremTfsGit.Value || _gitCommandManager.EnsureGitVersion(minGitVersionSupportAuthHeader, throwOnNotMatch: false)))
+                    {
+                        string tfsAccountUrl = repositoryUrl.AbsoluteUri.Replace(repositoryUrl.PathAndQuery, string.Empty);
+                        additionalSubmoduleUpdateArgs.Add($"-c http.{tfsAccountUrl}.extraheader=\"AUTHORIZATION: bearer {password}\"");
+                    }
+
+                    // Prepare proxy config for submodule update.
+                    string proxyUrl = executionContext.Variables.Get(Constants.Variables.Agent.ProxyUrl);
+                    if (!string.IsNullOrEmpty(proxyUrl))
+                    {
+                        executionContext.Debug($"Config proxy server '{proxyUrl}' for git submodule update.");
+
+                        string proxyUsername = executionContext.Variables.Get(Constants.Variables.Agent.ProxyUsername);
+                        string proxyPassword = executionContext.Variables.Get(Constants.Variables.Agent.ProxyPassword);
+
+                        Uri proxyUrlWithCred = GetCredentialEmbeddedUrl(new Uri(proxyUrl), proxyUsername, proxyPassword);
+                        additionalSubmoduleUpdateArgs.Add($"-c http.proxy=\"{proxyUrlWithCred.AbsoluteUri}\"");
+                    }
                 }
 
-                int exitCode_submoduleUpdate = await _gitCommandManager.GitSubmoduleUpdate(executionContext, targetPath, additionalSubmoduleUpdateArgs, cancellationToken);
+                int exitCode_submoduleUpdate = await _gitCommandManager.GitSubmoduleUpdate(executionContext, targetPath, string.Join(" ", additionalSubmoduleUpdateArgs), cancellationToken);
                 if (exitCode_submoduleUpdate != 0)
                 {
                     throw new InvalidOperationException($"Git submodule update failed with exit code: {exitCode_submoduleUpdate}");
@@ -392,7 +427,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
                     {
                         string configKey = $"http.{repositoryUrl.AbsoluteUri}.extraheader";
                         string configValue = $"\"AUTHORIZATION: bearer {password}\"";
-                        _authHeaderCache[configKey] = configValue.Trim('\"');
+                        _configModifyCache[configKey] = configValue.Trim('\"');
                         int exitCode_config = await _gitCommandManager.GitConfig(executionContext, targetPath, configKey, configValue);
                         if (exitCode_config != 0)
                         {
@@ -406,6 +441,29 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
                     {
                         // remove cached credential from origin's fetch/push url.
                         await RemoveCachedCredential(executionContext, targetPath, repositoryUrl, "origin");
+                    }
+                }
+
+                if (exposeCred)
+                {
+                    // save proxy setting to git config.
+                    string proxyUrl = executionContext.Variables.Get(Constants.Variables.Agent.ProxyUrl);
+                    if (!string.IsNullOrEmpty(proxyUrl))
+                    {
+                        string proxyUsername = executionContext.Variables.Get(Constants.Variables.Agent.ProxyUsername);
+                        string proxyPassword = executionContext.Variables.Get(Constants.Variables.Agent.ProxyPassword);
+
+                        Uri proxyUrlWithCred = GetCredentialEmbeddedUrl(new Uri(proxyUrl), proxyUsername, proxyPassword);
+
+                        string proxyConfigKey = "http.proxy";
+                        string proxyConfigValue = $"\"{proxyUrlWithCred.AbsoluteUri}\"";
+                        _configModifyCache[proxyConfigKey] = proxyConfigValue.Trim('\"');
+
+                        int exitCode_proxyconfig = await _gitCommandManager.GitConfig(executionContext, targetPath, proxyConfigKey, proxyConfigValue);
+                        if (exitCode_proxyconfig != 0)
+                        {
+                            throw new InvalidOperationException($"Git config failed with exit code: {exitCode_proxyconfig}");
+                        }
                     }
                 }
             }
@@ -426,10 +484,10 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
 
             if (!_selfManageGitCreds)
             {
-                executionContext.Debug("Remove any extraheader setting from git config.");
-                foreach (var header in _authHeaderCache)
+                executionContext.Debug("Remove any extraheader and proxy setting from git config.");
+                foreach (var config in _configModifyCache)
                 {
-                    await RemoveExtraHeader(executionContext, targetPath, header.Key, header.Value);
+                    await RemoveGitConfig(executionContext, targetPath, config.Key, config.Value);
                 }
 
                 await RemoveCachedCredential(executionContext, targetPath, repositoryUrl, "origin");
@@ -476,24 +534,24 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
             }
         }
 
-        private Uri GetCredentialEmbeddedRepoUrl(Uri repositoryUrl, string username, string password)
+        private Uri GetCredentialEmbeddedUrl(Uri baseUrl, string username, string password)
         {
-            ArgUtil.NotNull(repositoryUrl, nameof(repositoryUrl));
+            ArgUtil.NotNull(baseUrl, nameof(baseUrl));
 
             // retrieve cached url first.
             Uri cachedUrl;
-            if (_credentialUrlCache.TryGetValue(repositoryUrl.AbsoluteUri, out cachedUrl))
+            if (_credentialUrlCache.TryGetValue(baseUrl.AbsoluteUri, out cachedUrl))
             {
                 return cachedUrl;
             }
 
             if (string.IsNullOrEmpty(username) && string.IsNullOrEmpty(password))
             {
-                return repositoryUrl;
+                return baseUrl;
             }
             else
             {
-                UriBuilder credUri = new UriBuilder(repositoryUrl);
+                UriBuilder credUri = new UriBuilder(baseUrl);
 
                 // priority: username => uri.username => 'useranme not supplied'
                 // escape chars in username for uri
@@ -501,7 +559,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
                 {
                     if (string.IsNullOrEmpty(credUri.UserName))
                     {
-                        username = "username not supplied";
+                        username = "usernamenotsupplied";
                     }
                     else
                     {
@@ -533,30 +591,34 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
             }
         }
 
-        private async Task RemoveExtraHeader(IExecutionContext executionContext, string targetPath, string extraheaderConfigKey, string extraheaderConfigValue)
+        private async Task RemoveGitConfig(IExecutionContext executionContext, string targetPath, string configKey, string configValue)
         {
-            int exitCode_configUnset = await _gitCommandManager.GitConfigUnset(executionContext, targetPath, extraheaderConfigKey);
+            int exitCode_configUnset = await _gitCommandManager.GitConfigUnset(executionContext, targetPath, configKey);
             if (exitCode_configUnset != 0)
             {
-                // if unable to use git.exe unset http.extraheader, modify git config file on disk. make sure we don't left credential.
-                if (!string.IsNullOrEmpty(extraheaderConfigValue))
+                // if unable to use git.exe unset http.extraheader or http.proxy, modify git config file on disk. make sure we don't left credential.
+                if (!string.IsNullOrEmpty(configValue))
                 {
                     executionContext.Warning(StringUtil.Loc("AttemptRemoveCredFromConfig"));
                     string gitConfig = Path.Combine(targetPath, ".git/config");
                     if (File.Exists(gitConfig))
                     {
                         string gitConfigContent = File.ReadAllText(Path.Combine(targetPath, ".git", "config"));
-                        if (gitConfigContent.Contains(extraheaderConfigKey))
+                        if (gitConfigContent.Contains(configKey))
                         {
-                            string setting = $"extraheader = {extraheaderConfigValue}";
+                            string setting = $"extraheader = {configValue}";
                             gitConfigContent = Regex.Replace(gitConfigContent, setting, string.Empty, RegexOptions.IgnoreCase);
+
+                            setting = $"proxy = {configValue}";
+                            gitConfigContent = Regex.Replace(gitConfigContent, setting, string.Empty, RegexOptions.IgnoreCase);
+
                             File.WriteAllText(gitConfig, gitConfigContent);
                         }
                     }
                 }
                 else
                 {
-                    executionContext.Warning(StringUtil.Loc("FailToRemoveCredFromConfig", extraheaderConfigKey, targetPath));
+                    executionContext.Warning(StringUtil.Loc("FailToRemoveGitConfig", configKey, configKey, targetPath));
                 }
             }
         }
