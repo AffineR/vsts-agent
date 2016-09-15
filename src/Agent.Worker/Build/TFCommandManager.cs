@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
 using System.Text;
+using System.Xml;
 
 namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
 {
@@ -61,7 +62,25 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
 
         public void SetupProxy(string proxyUrl, string proxyUsername, string proxyPassword)
         {
+            if (!string.IsNullOrEmpty(proxyUrl))
+            {
+                string appConfigFile = Path.Combine(ExecutionContext.Variables.Agent_ServerOMDirectory, "tf.exe.config");
+                XmlDocument appConfig = new XmlDocument();
+                using (var appConfigStream = new FileStream(appConfigFile, FileMode.Open, FileAccess.Read))
+                {
+                    appConfig.Load(appConfigStream);
+                }
 
+                var proxy = appConfig.SelectSingleNode("configuration/system.net/defaultProxy/proxy");
+                if (proxy == null)
+                {
+
+                }
+                else
+                {
+                    //proxy.Attributes.
+                }
+            }
         }
 
         public async Task ShelveAsync(string shelveset, string commentFile)
