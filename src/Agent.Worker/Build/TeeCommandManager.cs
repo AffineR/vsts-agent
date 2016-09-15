@@ -50,6 +50,11 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
             throw new NotSupportedException();
         }
 
+        public void SetupProxy(string proxyUrl, string proxyUsername, string proxyPassword)
+        {
+            
+        }
+
         public async Task ShelveAsync(string shelveset, string commentFile)
         {
             ArgUtil.NotNullOrEmpty(shelveset, nameof(shelveset));

@@ -30,6 +30,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
 
         public string FilePath => Path.Combine(ExecutionContext.Variables.Agent_ServerOMDirectory, "tf.exe");
 
+
         public Task EulaAsync()
         {
             throw new NotSupportedException();
@@ -57,6 +58,11 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
         // The current approach taken is: allow the exception to bubble. The TfsVCSourceProvider
         // will catch the exception, log it as a warning, throw away the workspace, and re-clone.
         public async Task ScorchAsync() => await RunCommandAsync(FormatFlags.OmitCollectionUrl, "vc", "scorch", SourcesDirectory, "/recursive", "/diff", "/unmapped");
+
+        public void SetupProxy(string proxyUrl, string proxyUsername, string proxyPassword)
+        {
+
+        }
 
         public async Task ShelveAsync(string shelveset, string commentFile)
         {
