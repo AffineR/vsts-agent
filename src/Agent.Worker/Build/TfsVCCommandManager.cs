@@ -123,7 +123,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
                     workingDirectory: SourcesDirectory,
                     fileName: "tf",
                     arguments: arguments,
-                    environment: null,
+                    environment: AdditionalEnvironment,
                     requireExitCodeZero: true,
                     outputEncoding: OutputEncoding,
                     cancellationToken: CancellationToken);
@@ -188,7 +188,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
                         workingDirectory: SourcesDirectory,
                         fileName: "tf",
                         arguments: arguments,
-                        environment: null,
+                        environment: AdditionalEnvironment,
                         requireExitCodeZero: true,
                         outputEncoding: OutputEncoding,
                         cancellationToken: CancellationToken);

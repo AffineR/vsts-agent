@@ -75,7 +75,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
                 if (exist_defaultProxy == null)
                 {
                     var proxy = appConfig.CreateElement("proxy");
-                    proxy.SetAttribute("proxyaddress", "proxyUrl");
+                    proxy.SetAttribute("proxyaddress", proxyUrl);
 
                     var defaultProxy = appConfig.CreateElement("defaultProxy");
                     defaultProxy.SetAttribute("useDefaultCredentials", "True");
@@ -98,6 +98,12 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
                 {
                     //proxy setting exist.
                     ExecutionContext.Debug("Proxy setting already exist in app.config file.");
+                }
+
+                // for devfabric testing, we need set this variable to let tf.exe hit the proxy server.
+                if (Endpoint.Url.Host.Contains("me.tfsallin.net"))
+                {
+                    AdditionalEnvironment["TFS_BYPASS_PROXY_ON_LOCAL"] = "0";
                 }
             }
         }
