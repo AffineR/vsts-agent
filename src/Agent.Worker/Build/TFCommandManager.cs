@@ -71,14 +71,33 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
                     appConfig.Load(appConfigStream);
                 }
 
-                var proxy = appConfig.SelectSingleNode("configuration/system.net/defaultProxy/proxy");
-                if (proxy == null)
+                var exist_defaultProxy = appConfig.SelectSingleNode("configuration/system.net/defaultProxy");
+                if (exist_defaultProxy == null)
                 {
+                    var proxy = appConfig.CreateElement("proxy");
+                    proxy.SetAttribute("proxyaddress", "proxyUrl");
 
+                    var defaultProxy = appConfig.CreateElement("defaultProxy");
+                    defaultProxy.SetAttribute("useDefaultCredentials", "True");
+                    defaultProxy.AppendChild(proxy);
+
+                    var system_net = appConfig.CreateElement("system.net");
+                    system_net.AppendChild(defaultProxy);
+
+                    var configuration = appConfig.SelectSingleNode("configuration");
+                    ArgUtil.NotNull(configuration, "configuration");
+
+                    configuration.AppendChild(system_net);
+
+                    using (var appConfigStream = new FileStream(appConfigFile, FileMode.Open, FileAccess.ReadWrite))
+                    {
+                        appConfig.Save(appConfigStream);
+                    }
                 }
                 else
                 {
-                    //proxy.Attributes.
+                    //proxy setting exist.
+                    ExecutionContext.Debug("Proxy setting already exist in app.config file.");
                 }
             }
         }

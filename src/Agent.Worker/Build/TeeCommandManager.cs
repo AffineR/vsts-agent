@@ -52,7 +52,44 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
 
         public void SetupProxy(string proxyUrl, string proxyUsername, string proxyPassword)
         {
-            
+            if (!string.IsNullOrEmpty(proxyUrl))
+            {
+                UriBuilder proxy = new UriBuilder(proxyUrl);
+
+                // priority: username => uri.username => 'useranme not supplied'
+                // escape chars in username for uri
+                if (string.IsNullOrEmpty(proxyUsername))
+                {
+                    if (string.IsNullOrEmpty(proxy.UserName))
+                    {
+                        proxyUsername = "usernamenotsupplied";
+                    }
+                    else
+                    {
+                        proxyUsername = proxy.UserName;
+                    }
+                }
+                proxyUsername = Uri.EscapeDataString(proxyUsername);
+
+                // priority: password => uri.password => string.empty
+                // escape chars in password for uri
+                if (string.IsNullOrEmpty(proxyPassword))
+                {
+                    if (string.IsNullOrEmpty(proxy.Password))
+                    {
+                        proxyPassword = string.Empty;
+                    }
+                    else
+                    {
+                        proxyPassword = proxy.Password;
+                    }
+                }
+                proxyPassword = Uri.EscapeDataString(proxyPassword);
+
+                proxy.UserName = proxyUsername;
+                proxy.Password = proxyPassword;
+                AdditionalEnvironment.Add("HTTP_PROXY_URL", proxy.Uri.AbsoluteUri);
+            }
         }
 
         public async Task ShelveAsync(string shelveset, string commentFile)

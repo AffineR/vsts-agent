@@ -44,6 +44,8 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
 
     public abstract class TfsVCCommandManager : AgentService
     {
+        public readonly Dictionary<string, string> AdditionalEnvironment = new Dictionary<string, string>();
+
         public CancellationToken CancellationToken { protected get; set; }
 
         public ServiceEndpoint Endpoint { protected get; set; }
