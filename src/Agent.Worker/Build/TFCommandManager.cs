@@ -100,8 +100,9 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
                     ExecutionContext.Debug("Proxy setting already exist in app.config file.");
                 }
 
-                // for devfabric testing, we need set this variable to let tf.exe hit the proxy server.
-                if (Endpoint.Url.Host.Contains("me.tfsallin.net"))
+                // when tf.exe talk to any devfabric site, it will always bypass proxy. 
+                // for testing, we need set this variable to let tf.exe hit the proxy server on devfabric.
+                if (Endpoint.Url.Host.Contains(".me.tfsallin.net"))
                 {
                     AdditionalEnvironment["TFS_BYPASS_PROXY_ON_LOCAL"] = "0";
                 }
